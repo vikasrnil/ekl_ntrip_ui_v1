@@ -5,6 +5,7 @@ Item {
     width: parent.width
     height: parent.height
 
+    property var stackView
     property string statusMsg: ""
 
     Timer {
@@ -24,12 +25,21 @@ Item {
         spacing: 10
         width: parent.width * 0.8
 
-        Text { text: "NTRIP CLIENT"; font.pixelSize: 20 }
-        Text { text: statusMsg; color: "blue" }
+        Text {
+            text: "NTRIP CLIENT"
+            font.pixelSize: 20
+        }
 
+        Text {
+            text: statusMsg
+            color: "blue"
+        }
+
+        // ================= INPUT =================
         TextField { id: hostField; placeholderText: "Host" }
         TextField { id: portField; placeholderText: "Port" }
 
+        // ================= FETCH =================
         Button {
             text: "Fetch Mount Points"
             onClicked: {
@@ -37,15 +47,29 @@ Item {
                     showMessage("Enter Host & Port")
                     return
                 }
-                ntripClient.fetchMountPoints(hostField.text, parseInt(portField.text))
+
+                showMessage("Fetching...")
+                ntripClient.fetchMountPoints(
+                    hostField.text,
+                    parseInt(portField.text)
+                )
             }
         }
 
-        ComboBox { id: mountCombo; model: [] }
+        // ================= MOUNT =================
+        ComboBox {
+            id: mountCombo
+            model: []
+        }
 
         TextField { id: userField; placeholderText: "User" }
-        TextField { id: passwordField; placeholderText: "Password"; echoMode: TextInput.Password }
+        TextField {
+            id: passwordField
+            placeholderText: "Password"
+            echoMode: TextInput.Password
+        }
 
+        // ================= CONNECT =================
         Button {
             text: "Connect"
             onClicked: {
@@ -60,6 +84,7 @@ Item {
                 }
 
                 var auth = userField.text + ":" + passwordField.text
+                showMessage("Connecting...")
 
                 ntripClient.connectToMountPoint(
                     hostField.text,
@@ -70,14 +95,17 @@ Item {
             }
         }
 
+        // ================= DISCONNECT =================
         Button {
             text: "Disconnect"
             onClicked: {
                 ntripClient.disconnectClient()
+                showMessage("Disconnected")
             }
         }
     }
 
+    // ================= BACKEND SIGNALS =================
     Connections {
         target: ntripClient
 
@@ -88,6 +116,11 @@ Item {
 
         function onConnectionStatus(s) {
             showMessage(s)
+
+            // ✅ NAVIGATE TO DATA PAGE
+            if (s === "Connected") {
+                stackView.push("DataPage.qml")
+            }
         }
     }
 }
