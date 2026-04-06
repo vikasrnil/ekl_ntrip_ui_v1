@@ -1,5 +1,8 @@
 #include "ntripclient.h"
 
+#include <QByteArray>
+#include <QMetaObject>
+
 #include <stdio.h>
 #include <thread>
 #include <stdlib.h>
@@ -11,14 +14,11 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-// ================= SERIAL INIT =================
+// ================= SERIAL =================
 static int init_serial(const char* dev)
 {
     int fd = open(dev, O_RDWR | O_NOCTTY | O_SYNC);
-    if (fd < 0) {
-        perror("Serial open");
-        return -1;
-    }
+    if (fd < 0) return -1;
 
     struct termios tio;
     tcgetattr(fd, &tio);
@@ -41,118 +41,73 @@ static int init_serial(const char* dev)
     tio.c_cc[VTIME] = 0;
 
     tcsetattr(fd, TCSANOW, &tio);
-    tcflush(fd, TCIOFLUSH);
-
     return fd;
 }
 
 // ================= CHECKSUM =================
-static int verifyChecksum(const char *sentence)
+static int verifyChecksum(const char *s)
 {
-    if (!sentence || sentence[0] != '$')
-        return 0;
+    if (!s || s[0] != '$') return 0;
 
     uint8_t calc = 0;
-    const char *ptr = sentence + 1;
+    const char *p = s + 1;
 
-    while (*ptr && *ptr != '*')
-        calc ^= *ptr++;
+    while (*p && *p != '*')
+        calc ^= *p++;
 
-    if (*ptr != '*')
-        return 0;
+    if (*p != '*') return 0;
+    p++;
 
-    ptr++;
+    char cs[3] = {p[0], p[1], '\0'};
+    uint8_t given = strtol(cs, NULL, 16);
 
-    if (strlen(ptr) < 2)
-        return 0;
-
-    char cs[3] = {ptr[0], ptr[1], '\0'};
-    uint8_t given = (uint8_t)strtol(cs, NULL, 16);
-
-    return (calc == given);
+    return calc == given;
 }
 
-// ================= LAT/LON FILTER =================
-static double lat_filt(float def)
+// ================= LAT/LON =================
+static double lat_filt(float d)
 {
-    float k = def * 0.01;
-    int deg = (int)k;
-
-    float sec = (def - deg * 100) / 60.0;
-    return deg + sec;
+    int deg = (int)(d * 0.01);
+    return deg + (d - deg * 100) / 60.0;
 }
 
-static double lng_filt(float def)
+static double lng_filt(float d)
 {
-    float k = def * 0.01;
-    int deg = (int)k;
-
-    float sec = (def - deg * 100) / 60.0;
-    return deg + sec;
+    int deg = (int)(d * 0.01);
+    return deg + (d - deg * 100) / 60.0;
 }
 
-// ================= GGA PARSER =================
-static void gga_nmeaparser(char *ga,
-                           int *timg, double *latg, char *l_dirg,
-                           double *lngvg, char *ln_dirg,
-                           int *qa, int *nsat,
-                           float *hdp, float *alt,
-                           int *difa, int *difs)
+// ================= GGA =================
+static void parseGGA(char *buf, double *lat, double *lon, int *fix, int *sat)
 {
-    if (strstr(ga, "$GNGGA") || strstr(ga, "$GPGGA"))
+    char *tok = strtok(buf, ",");
+    int i = 0;
+
+    while (tok)
     {
-        char *tok = strtok(ga, ",");
-        int z = 0;
+        if (i == 2) *lat = lat_filt(atof(tok));
+        if (i == 4) *lon = lng_filt(atof(tok));
+        if (i == 6) *fix = atoi(tok);
+        if (i == 7) *sat = atoi(tok);
 
-        while (tok != NULL)
-        {
-            if (z == 1) *timg = atoi(tok);
-            if (z == 2) *latg = lat_filt(atof(tok));
-            if (z == 3) *l_dirg = tok[0];
-            if (z == 4) *lngvg = lng_filt(atof(tok));
-            if (z == 5) *ln_dirg = tok[0];
-            if (z == 6) *qa = atoi(tok);
-            if (z == 7) *nsat = atoi(tok);
-            if (z == 8) *hdp = atof(tok);
-            if (z == 9) *alt = atof(tok);
-            if (z == 13) *difa = atoi(tok);
-            if (z == 14) *difs = atoi(tok);
-
-            tok = strtok(NULL, ",");
-            z++;
-        }
+        tok = strtok(NULL, ",");
+        i++;
     }
 }
 
-// ================= RMC PARSER =================
-static void rmc_nmeaparser(char *bu,
-                           int *timk, char *va,
-                           double *latv, char *l_dir,
-                           double *lngv, char *ln_dir,
-                           double *sp, double *hea,
-                           int *da, char *fa)
+// ================= RMC =================
+static void parseRMC(char *buf, double *spd, double *hd)
 {
-    if (strstr(bu, "$GNRMC") || strstr(bu, "$GPRMC"))
+    char *tok = strtok(buf, ",");
+    int i = 0;
+
+    while (tok)
     {
-        char *tok = strtok(bu, ",");
-        int z = 0;
+        if (i == 7) *spd = atof(tok);
+        if (i == 8) *hd  = atof(tok);
 
-        while (tok != NULL)
-        {
-            if (z == 1) *timk = atoi(tok);
-            if (z == 2) *va = tok[0];
-            if (z == 3) *latv = lat_filt(atof(tok));
-            if (z == 4) *l_dir = tok[0];
-            if (z == 5) *lngv = lng_filt(atof(tok));
-            if (z == 6) *ln_dir = tok[0];
-            if (z == 7) *sp = atof(tok);
-            if (z == 8) *hea = atof(tok);
-            if (z == 9) *da = atoi(tok);
-            if (z == 10) *fa = tok[0];
-
-            tok = strtok(NULL, ",");
-            z++;
-        }
+        tok = strtok(NULL, ",");
+        i++;
     }
 }
 
@@ -162,34 +117,33 @@ static int connect_socket(QString host, int port, QString request)
     struct hostent *server;
     struct sockaddr_in serv_addr;
 
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) return -1;
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return -1;
 
     server = gethostbyname(host.toStdString().c_str());
-    if (server == NULL) return -1;
+    if (!server) return -1;
 
-    bzero((char *)&serv_addr, sizeof(serv_addr));
+    memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
 
-    bcopy((char *)server->h_addr,
-          (char *)&serv_addr.sin_addr.s_addr,
-          server->h_length);
-
+    memcpy(&serv_addr.sin_addr.s_addr, server->h_addr, server->h_length);
     serv_addr.sin_port = htons(port);
 
-    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
         return -1;
 
-    write(sockfd, request.toStdString().c_str(), request.length());
+    write(sock, request.toStdString().c_str(), request.length());
 
-    return sockfd;
+    return sock;
 }
 
 // ================= CONSTRUCTOR =================
-NtripClient::NtripClient(QObject *parent)
-    : QObject(parent)
+NtripClient::NtripClient(QObject *parent) : QObject(parent)
 {
     tdata.running = false;
+    tdata.serial_fd = -1;
+    ntrip_tid = 0;
+    serial_tid = 0;
 }
 
 // ================= FETCH =================
@@ -198,27 +152,24 @@ void NtripClient::fetchMountPoints(QString host, int port)
     std::thread([=]() {
 
         QStringList list;
-        QString req = "GET / HTTP/1.0\r\nUser-Agent: NTRIPClient\r\n\r\n";
+        QString req = "GET / HTTP/1.0\r\n\r\n";
 
         int sock = connect_socket(host, port, req);
-
         if (sock < 0) {
-            emit mountPointsReceived(QStringList() << "Connection Failed");
+            emit mountPointsReceived(QStringList());
             return;
         }
 
         char buffer[4096];
 
         while (1) {
-            int n = read(sock, buffer, sizeof(buffer) - 1);
+            int n = read(sock, buffer, sizeof(buffer)-1);
             if (n <= 0) break;
 
             buffer[n] = '\0';
-
             QString data(buffer);
-            QStringList lines = data.split("\n");
 
-            for (QString line : lines) {
+            for (QString line : data.split("\n")) {
                 if (line.startsWith("STR;")) {
                     QStringList parts = line.split(";");
                     if (parts.size() > 1)
@@ -238,17 +189,18 @@ void NtripClient::connectToMountPoint(QString host, int port,
                                       QString mountpoint,
                                       QString auth)
 {
-    if (tdata.running) return;
-
-    emit connectionStatus("Connecting...");
-
-    int serial_fd = init_serial("/dev/ttyUSB0");
-    if (serial_fd < 0) {
-        emit connectionStatus("Serial Failed");
+    if (tdata.running) {
+        emit connectionStatus("Already Connected");
         return;
     }
 
-    tdata.serial_fd = serial_fd;
+    int fd = init_serial("/dev/ttyUSB0");
+    if (fd < 0) {
+        emit connectionStatus("Serial Error");
+        return;
+    }
+
+    tdata.serial_fd = fd;
     tdata.host = host;
     tdata.port = port;
     tdata.mountpoint = mountpoint;
@@ -268,14 +220,15 @@ void NtripClient::disconnectClient()
     if (!tdata.running) return;
 
     emit connectionStatus("Disconnecting...");
-
     tdata.running = false;
 
-    pthread_join(ntrip_tid, NULL);
-    pthread_join(serial_tid, NULL);
+    if (ntrip_tid) pthread_join(ntrip_tid, NULL);
+    if (serial_tid) pthread_join(serial_tid, NULL);
 
-    if (tdata.serial_fd > 0)
+    if (tdata.serial_fd > 0) {
         close(tdata.serial_fd);
+        tdata.serial_fd = -1;
+    }
 
     emit connectionStatus("Disconnected");
 }
@@ -283,35 +236,31 @@ void NtripClient::disconnectClient()
 // ================= NTRIP THREAD =================
 void* NtripClient::ntrip_thread(void *arg)
 {
-    ThreadData *data = (ThreadData*)arg;
+    ThreadData *d = (ThreadData*)arg;
 
-    while (data->running)
+    while (d->running)
     {
-        QString request =
-            "GET /" + data->mountpoint + " HTTP/1.1\r\n"
-            "Host: " + data->host + "\r\n"
-            "Ntrip-Version: Ntrip/2.0\r\n"
-            "User-Agent: NTRIPClient\r\n"
-            "Authorization: " + data->auth + "\r\n"
-            "Connection: keep-alive\r\n\r\n";
+        QString auth = "Basic " + d->auth.toUtf8().toBase64();
 
-        int sock = connect_socket(data->host, data->port, request);
+        QString req =
+            "GET /" + d->mountpoint + " HTTP/1.1\r\n"
+            "Host: " + d->host + "\r\n"
+            "Authorization: " + auth + "\r\n\r\n";
+
+        int sock = connect_socket(d->host, d->port, req);
 
         if (sock < 0) {
             sleep(2);
             continue;
         }
 
-        char buffer[1024];
+        char buf[1024];
 
-        while (data->running)
-        {
-            int n = read(sock, buffer, sizeof(buffer));
-
+        while (d->running) {
+            int n = read(sock, buf, sizeof(buf));
             if (n > 0)
-                write(data->serial_fd, buffer, n);
-            else
-                break;
+                write(d->serial_fd, buf, n);
+            else break;
         }
 
         close(sock);
@@ -324,19 +273,17 @@ void* NtripClient::ntrip_thread(void *arg)
 // ================= SERIAL THREAD =================
 void* NtripClient::serial_thread(void *arg)
 {
-    ThreadData *data = (ThreadData*)arg;
+    ThreadData *d = (ThreadData*)arg;
 
     char line[256];
-    int idx = 0;
-    char c;
+    int idx = 0, c;
 
-    int tim=0, dat=0, qua=0, nsati=0;
-    double lat=0, lng=0, spd=0, hd=0;
-    char valid=0, ltdir=0, lngdir=0, fixt=0;
+    double lat=0, lon=0, spd=0, hd=0;
+    int fix=0, sat=0;
 
-    while (data->running)
+    while (d->running)
     {
-        if (read(data->serial_fd, &c, 1) <= 0)
+        if (read(d->serial_fd, &c, 1) <= 0)
             continue;
 
         if (c == '\n')
@@ -344,45 +291,28 @@ void* NtripClient::serial_thread(void *arg)
             line[idx] = '\0';
             idx = 0;
 
-            if (line[0] != '$' || !verifyChecksum(line))
+            if (!verifyChecksum(line))
                 continue;
 
             char temp[256];
             strcpy(temp, line);
 
             if (strstr(line, "GGA"))
-            {
-                int diff_age=0, diff_sat=0;
-                float hdop=0, alti=0;
+                parseGGA(temp, &lat, &lon, &fix, &sat);
 
-                gga_nmeaparser(temp, &tim, &lat, &ltdir, &lng, &lngdir,
-                               &qua, &nsati, &hdop, &alti,
-                               &diff_age, &diff_sat);
-            }
             else if (strstr(line, "RMC"))
-            {
-                rmc_nmeaparser(temp, &tim, &valid, &lat, &ltdir,
-                               &lng, &lngdir, &spd, &hd,
-                               &dat, &fixt);
-            }
+                parseRMC(temp, &spd, &hd);
 
-            QString out = QString("Lat:%1 Lon:%2 Fix:%3 Sats:%4 Spd:%5 Head:%6")
-                    .arg(lat, 0, 'f', 6)
-                    .arg(lng, 0, 'f', 6)
-                    .arg(qua)
-                    .arg(nsati)
-                    .arg(spd, 0, 'f', 2)
-                    .arg(hd, 0, 'f', 1);
+            QString out = QString("Lat:%1 Lon:%2 Fix:%3 Sat:%4 Spd:%5 Head:%6")
+                    .arg(lat,0,'f',6).arg(lon,0,'f',6)
+                    .arg(fix).arg(sat)
+                    .arg(spd,0,'f',2).arg(hd,0,'f',1);
 
-            QMetaObject::invokeMethod(data->self,
-                                     "dataUpdated",
-                                     Qt::QueuedConnection,
-                                     Q_ARG(QString, out));
+            QMetaObject::invokeMethod(d->self, "dataUpdated",
+                Qt::QueuedConnection, Q_ARG(QString, out));
         }
-        else if (c != '\r' && idx < sizeof(line) - 1)
-        {
+        else if (c != '\r' && idx < 255)
             line[idx++] = c;
-        }
     }
 
     return NULL;
