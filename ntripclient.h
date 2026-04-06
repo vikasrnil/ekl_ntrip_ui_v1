@@ -35,7 +35,7 @@ private:
         int port;
         QString mountpoint;
         QString auth;
-        volatile bool running;   // ✅ FIX: thread-safe flag
+        volatile bool running;   
         NtripClient *self;
     };
 
