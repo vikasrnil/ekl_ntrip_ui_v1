@@ -12,6 +12,17 @@ ApplicationWindow {
         initialItem: mainPage
     }
 
-    Component { id: mainPage; MainPage {} }
-    Component { id: dataPage; DataPage {} }
+    Component {
+        id: mainPage
+        MainPage {
+            stackView: stack
+        }
+    }
+
+    Component {
+        id: dataPage
+        DataPage {
+            stackView: stack
+        }
+    }
 }
