@@ -156,7 +156,8 @@ void NtripClient::fetchMountPoints(QString host, int port)
 
         int sock = connect_socket(host, port, req);
         if (sock < 0) {
-            emit mountPointsReceived(QStringList());
+            QMetaObject::invokeMethod(this, "mountPointsReceived",
+                Qt::QueuedConnection, Q_ARG(QStringList, list));
             return;
         }
 
@@ -179,7 +180,9 @@ void NtripClient::fetchMountPoints(QString host, int port)
         }
 
         close(sock);
-        emit mountPointsReceived(list);
+
+        QMetaObject::invokeMethod(this, "mountPointsReceived",
+            Qt::QueuedConnection, Q_ARG(QStringList, list));
 
     }).detach();
 }
@@ -219,11 +222,10 @@ void NtripClient::disconnectClient()
 {
     if (!tdata.running) return;
 
-    emit connectionStatus("Disconnecting...");
     tdata.running = false;
 
-    if (ntrip_tid) pthread_join(ntrip_tid, NULL);
-    if (serial_tid) pthread_join(serial_tid, NULL);
+    // give threads time to exit loop
+    usleep(200000);
 
     if (tdata.serial_fd > 0) {
         close(tdata.serial_fd);
@@ -264,7 +266,7 @@ void* NtripClient::ntrip_thread(void *arg)
         }
 
         close(sock);
-        sleep(2);
+        sleep(1);
     }
 
     return NULL;
