@@ -78,17 +78,41 @@ static double lng_filt(float d)
 }
 
 // ================= GGA =================
-static void parseGGA(char *buf, double *lat, double *lon, int *fix, int *sat)
+static void parseGGA(char *buf,
+                     int *time,
+                     double *lat, char *latDir,
+                     double *lon, char *lonDir,
+                     int *fix, int *sat,
+                     double *hdop,
+                     double *alt,
+                     double *geoid,
+                     int *diff_age)
 {
     char *tok = strtok(buf, ",");
     int i = 0;
 
     while (tok)
     {
-        if (i == 2) *lat = lat_filt(atof(tok));
-        if (i == 4) *lon = lng_filt(atof(tok));
-        if (i == 6) *fix = atoi(tok);
-        if (i == 7) *sat = atoi(tok);
+        switch(i)
+        {
+        case 1: *time = atoi(tok); break;
+
+        case 2: *lat = lat_filt(atof(tok)); break;
+        case 3: *latDir = tok[0]; break;
+
+        case 4: *lon = lng_filt(atof(tok)); break;
+        case 5: *lonDir = tok[0]; break;
+
+        case 6: *fix = atoi(tok); break;
+        case 7: *sat = atoi(tok); break;
+
+        case 8: *hdop = atof(tok); break;
+        case 9: *alt  = atof(tok); break;
+
+        case 11: *geoid = atof(tok); break;
+
+        case 13: *diff_age = atoi(tok); break;
+        }
 
         tok = strtok(NULL, ",");
         i++;
@@ -96,15 +120,36 @@ static void parseGGA(char *buf, double *lat, double *lon, int *fix, int *sat)
 }
 
 // ================= RMC =================
-static void parseRMC(char *buf, double *spd, double *hd)
+static void parseRMC(char *buf,
+                     int *time,
+                     char *status,
+                     double *lat, char *latDir,
+                     double *lon, char *lonDir,
+                     double *speed,
+                     double *heading,
+                     int *date)
 {
     char *tok = strtok(buf, ",");
     int i = 0;
 
     while (tok)
     {
-        if (i == 7) *spd = atof(tok);
-        if (i == 8) *hd  = atof(tok);
+        switch(i)
+        {
+        case 1: *time = atoi(tok); break;
+        case 2: *status = tok[0]; break;
+
+        case 3: *lat = lat_filt(atof(tok)); break;
+        case 4: *latDir = tok[0]; break;
+
+        case 5: *lon = lng_filt(atof(tok)); break;
+        case 6: *lonDir = tok[0]; break;
+
+        case 7: *speed = atof(tok); break;
+        case 8: *heading = atof(tok); break;
+
+        case 9: *date = atoi(tok); break;
+        }
 
         tok = strtok(NULL, ",");
         i++;
@@ -280,8 +325,14 @@ void* NtripClient::serial_thread(void *arg)
     char line[256];
     int idx = 0, c;
 
-    double lat=0, lon=0, spd=0, hd=0;
-    int fix=0, sat=0;
+	int gga_time=0, fix=0, sat=0, diff_age=0;
+	double lat=0, lon=0, hdop=0, alt=0, geoid=0;
+
+	int rmc_time=0, date=0;
+	double spd=0, hd=0;
+	char status=0;
+
+	char latDir='-', lonDir='-';
 
     while (d->running)
     {
@@ -300,22 +351,43 @@ void* NtripClient::serial_thread(void *arg)
             strcpy(temp, line);
 
             if (strstr(line, "GGA"))
-                parseGGA(temp, &lat, &lon, &fix, &sat);
+             parseGGA(temp,
+             &gga_time,
+             &lat, &latDir,
+             &lon, &lonDir,
+             &fix, &sat,
+             &hdop,
+             &alt,
+             &geoid,
+             &diff_age);
 
             else if (strstr(line, "RMC"))
-                parseRMC(temp, &spd, &hd);
+             parseRMC(temp,
+             &rmc_time,
+             &status,
+             &lat, &latDir,
+             &lon, &lonDir,
+             &spd,
+             &hd,
+             &date);
 
-QString out = QString("GGA: %1 %2 %3 %4 %5 %6 %7 %8 %9 %10")
-        .arg(0)                  // tim (not parsed, keep 0 or extend later)
-        .arg(lat,0,'f',6)
-        .arg('N')                // ltdir (you can improve later)
-        .arg(lon,0,'f',6)
-        .arg('E')                // lngdir
-        .arg(fix)
-        .arg(0)                  // diff_age
-        .arg(sat)
-        .arg(0.0,0,'f',1)        // hdop (not parsed yet)
-        .arg(0);                 // diff_sat
+	QString out = QString(
+	    "GGA: %1 Lat:%2 %3 Lon:%4 %5 Fix:%6 Sat:%7 HDOP:%8 Alt:%9 DiffAge:%10\n"
+	    "RMC: Time:%11 Status:%12 Speed:%13 Heading:%14 Date:%15"
+	)
+	.arg(gga_time)
+	.arg(lat,0,'f',6).arg(latDir)
+	.arg(lon,0,'f',6).arg(lonDir)
+	.arg(fix)
+	.arg(sat)
+	.arg(hdop,0,'f',1)
+	.arg(alt,0,'f',1)
+	.arg(diff_age)
+	.arg(rmc_time)
+	.arg(status)
+	.arg(spd,0,'f',2)
+	.arg(hd,0,'f',1)
+	.arg(date);
 
             QMetaObject::invokeMethod(d->self, "dataUpdated",
                 Qt::QueuedConnection, Q_ARG(QString, out));
