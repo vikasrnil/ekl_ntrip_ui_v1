@@ -5,7 +5,6 @@ Item {
     width: parent.width
     height: parent.height
 
-    // ================= STATUS =================
     property string statusMsg: ""
 
     Timer {
@@ -25,21 +24,12 @@ Item {
         spacing: 10
         width: parent.width * 0.8
 
-        Text {
-            text: "NTRIP CLIENT"
-            font.pixelSize: 20
-        }
+        Text { text: "NTRIP CLIENT"; font.pixelSize: 20 }
+        Text { text: statusMsg; color: "blue" }
 
-        Text {
-            text: statusMsg
-            color: "blue"
-        }
-
-        // ================= INPUTS =================
         TextField { id: hostField; placeholderText: "Host" }
         TextField { id: portField; placeholderText: "Port" }
 
-        // ================= FETCH =================
         Button {
             text: "Fetch Mount Points"
             onClicked: {
@@ -47,26 +37,15 @@ Item {
                     showMessage("Enter Host & Port")
                     return
                 }
-
-                showMessage("Fetching...")
-                ntripClient.fetchMountPoints(hostField.text, portField.text)
+                ntripClient.fetchMountPoints(hostField.text, parseInt(portField.text))
             }
         }
 
-        // ================= MOUNT =================
-        ComboBox {
-            id: mountCombo
-            model: []
-        }
+        ComboBox { id: mountCombo; model: [] }
 
         TextField { id: userField; placeholderText: "User" }
-        TextField {
-            id: passwordField
-            placeholderText: "Password"
-            echoMode: TextInput.Password
-        }
+        TextField { id: passwordField; placeholderText: "Password"; echoMode: TextInput.Password }
 
-        // ================= CONNECT =================
         Button {
             text: "Connect"
             onClicked: {
@@ -80,41 +59,31 @@ Item {
                     return
                 }
 
-                showMessage("Connecting...")
+                var auth = userField.text + ":" + passwordField.text
 
-                ntripClient.connectToServer(
+                ntripClient.connectToMountPoint(
                     hostField.text,
-                    portField.text,
+                    parseInt(portField.text),
                     mountCombo.currentText,
-                    userField.text,
-                    passwordField.text
+                    auth
                 )
             }
         }
 
-        // ================= DISCONNECT =================
         Button {
             text: "Disconnect"
             onClicked: {
-                ntripClient.disconnectFromServer()
-                showMessage("Disconnected")
+                ntripClient.disconnectClient()
             }
         }
     }
 
-    // ================= SIGNALS =================
     Connections {
         target: ntripClient
 
         function onMountPointsReceived(list) {
             mountCombo.model = list
-
-            if (list.length > 0) {
-                mountCombo.currentIndex = 0
-                showMessage("Mountpoints loaded")
-            } else {
-                showMessage("No mountpoints")
-            }
+            showMessage(list.length > 0 ? "Mountpoints loaded" : "No mountpoints")
         }
 
         function onConnectionStatus(s) {
