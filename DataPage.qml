@@ -5,7 +5,8 @@ Item {
     width: parent.width
     height: parent.height
 
-    property bool isDisconnected: false   // safety flag
+    property var stackView
+    property bool isDisconnected: false
 
     Column {
         anchors.centerIn: parent
@@ -43,12 +44,12 @@ Item {
                     isDisconnected = true
                 }
 
-                stack.pop()
+                stackView.pop()
             }
         }
     }
 
-    // ================= DATA =================
+    // ================= BACKEND SIGNALS =================
     Connections {
         target: ntripClient
 
