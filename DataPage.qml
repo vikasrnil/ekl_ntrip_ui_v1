@@ -2,6 +2,11 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 
 Item {
+    width: parent.width
+    height: parent.height
+
+    property bool isDisconnected: false   // safety flag
+
     Column {
         anchors.centerIn: parent
         spacing: 20
@@ -11,38 +16,50 @@ Item {
             font.pixelSize: 20
         }
 
-        // Parsed one-line data
         Text {
             id: dataText
             text: "Waiting..."
             font.pixelSize: 16
         }
 
-        // DISCONNECT BUTTON
+        // ================= DISCONNECT =================
         Button {
             text: "Disconnect"
             onClicked: {
-                ntripClient.disconnectFromServer()
-                dataText.text = "Disconnected"
+                if (!isDisconnected) {
+                    ntripClient.disconnectClient()
+                    isDisconnected = true
+                    dataText.text = "Disconnected"
+                }
             }
         }
 
-        // BACK BUTTON (also disconnect)
+        // ================= BACK =================
         Button {
             text: "Back"
             onClicked: {
-                ntripClient.disconnectFromServer()
+                if (!isDisconnected) {
+                    ntripClient.disconnectClient()
+                    isDisconnected = true
+                }
+
                 stack.pop()
             }
         }
     }
 
-    // RECEIVE DATA FROM C++
+    // ================= DATA =================
     Connections {
         target: ntripClient
 
         function onDataUpdated(line) {
-            dataText.text = line
+            if (!isDisconnected)
+                dataText.text = line
+        }
+
+        function onConnectionStatus(s) {
+            if (s === "Disconnected")
+                isDisconnected = true
         }
     }
 }
