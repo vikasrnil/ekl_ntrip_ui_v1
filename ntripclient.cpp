@@ -305,10 +305,17 @@ void* NtripClient::serial_thread(void *arg)
             else if (strstr(line, "RMC"))
                 parseRMC(temp, &spd, &hd);
 
-            QString out = QString("Lat:%1 Lon:%2 Fix:%3 Sat:%4 Spd:%5 Head:%6")
-                    .arg(lat,0,'f',6).arg(lon,0,'f',6)
-                    .arg(fix).arg(sat)
-                    .arg(spd,0,'f',2).arg(hd,0,'f',1);
+QString out = QString("GGA: %1 %2 %3 %4 %5 %6 %7 %8 %9 %10")
+        .arg(0)                  // tim (not parsed, keep 0 or extend later)
+        .arg(lat,0,'f',6)
+        .arg('N')                // ltdir (you can improve later)
+        .arg(lon,0,'f',6)
+        .arg('E')                // lngdir
+        .arg(fix)
+        .arg(0)                  // diff_age
+        .arg(sat)
+        .arg(0.0,0,'f',1)        // hdop (not parsed yet)
+        .arg(0);                 // diff_sat
 
             QMetaObject::invokeMethod(d->self, "dataUpdated",
                 Qt::QueuedConnection, Q_ARG(QString, out));
