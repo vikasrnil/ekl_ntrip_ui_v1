@@ -197,7 +197,12 @@ void NtripClient::fetchMountPoints(QString host, int port)
     std::thread([=]() {
 
         QStringList list;
-        QString req = "GET / HTTP/1.0\r\n\r\n";
+
+        // Build HTTP request
+        QString req = "GET / HTTP/1.1\r\n";
+        req += "User-Agent: NTRIP QtClient/1.0\r\n";
+        req += "Accept: */*\r\n";
+        req += "Connection: close\r\n\r\n";
 
         int sock = connect_socket(host, port, req);
         if (sock < 0) {
@@ -207,15 +212,21 @@ void NtripClient::fetchMountPoints(QString host, int port)
         }
 
         char buffer[4096];
+        QString partial; // To store incomplete lines
 
-        while (1) {
-            int n = read(sock, buffer, sizeof(buffer)-1);
+        while (true) {
+            int n = read(sock, buffer, sizeof(buffer) - 1);
             if (n <= 0) break;
 
             buffer[n] = '\0';
-            QString data(buffer);
+            partial += QString::fromUtf8(buffer, n);
 
-            for (QString line : data.split("\n")) {
+            // Process complete lines
+            while (partial.contains("\n")) {
+                int idx = partial.indexOf("\n");
+                QString line = partial.left(idx).trimmed();
+                partial = partial.mid(idx + 1);
+
                 if (line.startsWith("STR;")) {
                     QStringList parts = line.split(";");
                     if (parts.size() > 1)
@@ -226,6 +237,14 @@ void NtripClient::fetchMountPoints(QString host, int port)
 
         close(sock);
 
+        // Handle any remaining partial line
+        if (!partial.isEmpty() && partial.startsWith("STR;")) {
+            QStringList parts = partial.split(";");
+            if (parts.size() > 1)
+                list.append(parts[1].trimmed());
+        }
+
+        // Emit result back to main thread
         QMetaObject::invokeMethod(this, "mountPointsReceived",
             Qt::QueuedConnection, Q_ARG(QStringList, list));
 
